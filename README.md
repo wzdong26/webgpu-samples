@@ -8,5 +8,5 @@ Recently chrome released WebGPU and WebGPU is now available by default in chrome
 
 -   `pnpm i` or `npm i`
 -   `pnpm dev` or `npm run dev`
--   Network: `http://localhost:8081/`
+-   Local: [http://localhost:8081/](http://localhost:8081/)
 
