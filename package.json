@@ -1,0 +1,18 @@
+{
+    "name": "webgpu-samples",
+    "version": "0.0.0",
+    "description": "Samples using the WebGPU API",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build"
+    },
+    "dependencies": {
+        "gl-matrix": "^3.4.3"
+    },
+    "devDependencies": {
+        "@types/node": "^18.15.11",
+        "@webgpu/types": "^0.1.21",
+        "typescript": "^4.8.3",
+        "vite": "^2.6.4"
+    }
+}
