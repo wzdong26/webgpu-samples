@@ -13,8 +13,8 @@ _app.appendChild(_canvas);
 let pause: void | (() => void);
 const loadPage = (url?: string) => {
     pause?.();
+    if (!url) return router.push(pagesArr[0]);
     let key = (url ?? location.pathname).replace('/', '');
-    if (!key) return router.replace(pagesArr[0]);
     pages[key as keyof typeof pages]?.().then(async ({ render }) => {
         pause = await render?.(_canvas);
     });
