@@ -1,11 +1,12 @@
-# TS + Vite
+# WebGPU Samples
 
+## Introduction
 
-## Recommended IDE Setup
+Recently chrome released WebGPU and WebGPU is now available by default in chrome 113. This repository is used to help learn WebGPU.
 
-- [VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=johnsoncodehk.volar)
+## Install and Run
 
-## 项目启动：
+-   `pnpm i` or `npm i`
+-   `pnpm dev` or `npm run dev`
+-   Network: `http://localhost:8081/`
 
-- npm i
-- npm run dev
