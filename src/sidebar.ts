@@ -3,6 +3,13 @@ import { router } from './common/router';
 import './style/sidebar.css';
 
 export default function sideBar(items?: string[]) {
+    const _img = createEl({ tagName: 'img', className: 'logo' });
+    _img.src = '/favicon.jpg';
+    // const _githubLinkImg = createEl({ tagName: 'img', className: 'github-link-img' });
+    // _githubLinkImg.src = '/favicon.jpg';
+    const _githubLink = createEl({ tagName: 'a', txt: 'GitHub', className: 'github-link' });
+    _githubLink.href = 'https://github.com/wzdong26/webgpu-samples';
+
     items ??= ['basicTriangle', 'basicTriangleMSAA'];
 
     const _navItems = items.map((item) => {
@@ -19,6 +26,6 @@ export default function sideBar(items?: string[]) {
             activeItem.classList.add('nav-item-active');
         }
     });
-    const _sidebar = createEl({ className: 'sidebar', children: [_navbar] });
+    const _sidebar = createEl({ className: 'sidebar', children: [_img, _githubLink, _navbar] });
     return _sidebar;
 }

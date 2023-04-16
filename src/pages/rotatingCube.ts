@@ -1,5 +1,6 @@
 /**
  * @title rotatingCube
+ * @description rotatingCube
  * @author wzdong
  */
 
