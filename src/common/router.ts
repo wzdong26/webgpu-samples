@@ -16,9 +16,6 @@ export const router = {
 (['push', 'replace'] as ('push' | 'replace')[]).forEach((e) => {
     router[e] = function (url: string) {
         url = url.trim();
-        if (url.indexOf('/') !== 0) {
-            url = '/' + url;
-        }
         for (const cb of this.beforeHooks) {
             cb(url);
         }
