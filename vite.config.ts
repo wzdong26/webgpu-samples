@@ -47,7 +47,7 @@ export default defineConfig(({ command, mode }) => {
         // build 独有配置
         // build
         config.build = {
-            outDir: `./dist${config.base}`,
+            outDir: `./docs${config.base}`,
             target: ['edge90', 'chrome90', 'firefox90', 'safari15', 'esnext'],
         };
         // config.productionSourceMap= true
