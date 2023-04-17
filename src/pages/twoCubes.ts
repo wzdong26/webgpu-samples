@@ -10,6 +10,7 @@ import positionFrag from '@/shaders/position.frag.wgsl?raw';
 import { cube } from '@/geometry/cube';
 import { getMvpMatrix } from '@/utils/matrix';
 import { animationFrame } from '@/utils/frame';
+import { onResize } from '@/utils/resizeObserver';
 
 export async function render(canvas: HTMLCanvasElement) {
     return init(canvas);
@@ -57,15 +58,33 @@ async function init(canvas: HTMLCanvasElement) {
     const device = await adapter.requestDevice();
     const context = canvas.getContext('webgpu')!;
     const { devicePixelRatio = 1 } = window;
-    const size = {
-        width: canvas.clientWidth * devicePixelRatio,
-        height: canvas.clientHeight * devicePixelRatio,
+
+    const onCanvasResize = () => {
+        const { width, height, clientHeight, clientWidth } = canvas;
+        if (width === clientWidth * devicePixelRatio && height === clientHeight * devicePixelRatio) return;
+        const size = {
+            width: canvas.clientWidth * devicePixelRatio,
+            height: canvas.clientHeight * devicePixelRatio,
+        };
+        Object.assign(canvas, size);
+
+        depthView = device
+            .createTexture({
+                size,
+                format: 'depth24plus',
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            })
+            .createView();
+
+        rotate = mvpRotate(device, group1, group2, size.width / size.height);
     };
-    Object.assign(canvas, size);
+    onCanvasResize();
+    const offResize = onResize(canvas, onCanvasResize);
+
     context.configure({
         device,
         format,
-        alphaMode: 'premultiplied',
+        alphaMode: 'opaque',
     });
 
     // pipeline
@@ -131,21 +150,15 @@ async function init(canvas: HTMLCanvasElement) {
     const group2 = createBindGroup(device, pipeline);
 
     // create depthTexture for renderPass
-    const depthView = device
-        .createTexture({
-            size,
-            format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        })
-        .createView();
+    let depthView: GPUTextureView;
 
-    const rotate = mvpRotate(device, group1, group2, size.width / size.height);
+    let rotate: (time: number) => void;
 
-    return animationFrame((time) => {
+    const pause = animationFrame((time) => {
         rotate(time);
 
         const commandEncoder = device.createCommandEncoder();
-        
+
         // create colorTexture for renderPass, every frame create new colorTexture.
         const colorView = context.getCurrentTexture().createView();
 
@@ -179,6 +192,11 @@ async function init(canvas: HTMLCanvasElement) {
         passEncoder.end();
         device.queue.submit([commandEncoder.finish()]);
     });
+
+    return () => {
+        pause();
+        offResize();
+    };
 }
 
 function createBindGroup(device: GPUDevice, pipeline: GPURenderPipeline) {

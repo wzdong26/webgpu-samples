@@ -3,5 +3,5 @@ export const pages = {
     basicTriangleMSAA: () => import('./basicTriangleMSAA'),
     rotatingCube: () => import('./rotatingCube'),
 
-    1: () => import('./rotatingCube'),
+    // 1: () => import('./rotatingCube'),
 }

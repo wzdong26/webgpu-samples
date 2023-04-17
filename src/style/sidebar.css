@@ -1,9 +1,10 @@
 .sidebar {
     float: left;
+    margin-left: calc(-100%);
     width: 200px;
 }
 
-.logo{
+.logo {
     width: 150px;
     margin: 0 auto;
     display: block;
@@ -11,21 +12,27 @@
 
 .github-link {
     padding-top: 30px;
-    margin: 0 auto;
+    margin: 0 10px;
+    font-size: large;
     width: 150px;
     text-align: center;
     display: block;
+    cursor: pointer;
+}
+.github-link:hover {
+    color: #0cd0f3;
 }
 
 .navbar {
     margin-top: 30px;
-    width: 100%;
+    margin-left: 10px;
+    width: 90%;
 }
 .nav-item {
     height: 2em;
     cursor: pointer;
-    text-align: center;
     margin: 10px;
+    padding-left: 10px;
 }
 .nav-item:hover {
     border-bottom: 1px solid #0cd0f3;

@@ -6,6 +6,7 @@
 import positionVert from '@/shaders/position.vert.wgsl?raw';
 import colorFrag from '@/shaders/color.frag.wgsl?raw';
 import { triangle } from '@/geometry/triangle';
+import { onResize } from '@/utils/resizeObserver';
 
 export async function render(canvas: HTMLCanvasElement) {
     const { device, context, pipeline } = await init(canvas);
@@ -13,21 +14,13 @@ export async function render(canvas: HTMLCanvasElement) {
     // start draw
     draw(device, context, pipeline, buffer);
 
-    // requestAnimationFrame(() => {
-    //     // {
-    //     //     triangle.vertex[0] =
-    //     // }
-    //     device.queue.writeBuffer(buffer.vertexBuffer, 0, triangle.vertex);
-    //     device.queue.writeBuffer(buffer.colorBuffer, 0, triangle.color);
-    // draw(device, context, pipeline, buffer);
-    // })
-    // // re-configure context on resize
-    // addEventListener('resize', () => {
-    //     canvas.width = canvas.clientWidth * devicePixelRatio;
-    //     canvas.height = canvas.clientHeight * devicePixelRatio;
-    //     // don't need to recall context.configure() after v104
-    //     draw(device, context, pipeline);
-    // });
+    // re-configure context on resize
+    return onResize(canvas, () => {
+        canvas.width = canvas.clientWidth * devicePixelRatio;
+        canvas.height = canvas.clientHeight * devicePixelRatio;
+        // don't need to recall context.configure() after v104
+        draw(device, context, pipeline, buffer);
+    });
 }
 
 async function init(canvas: HTMLCanvasElement) {

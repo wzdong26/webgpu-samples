@@ -1,10 +1,21 @@
+body {
+    margin: 0;
+}
+
 #app {
     width: 100%;
 }
 
+.canvas-container {
+    float: left;
+    box-sizing: border-box;
+    padding-left: 200px;
+    width: 100%;
+    height: 100%;
+}
+
 .canvas {
-    display: block;
-    margin: 0 auto;
-    width: 400px;
-    height: 400px;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 100vh;
 }

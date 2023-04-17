@@ -4,11 +4,14 @@ import { pages } from './pages';
 import sideBar from './sidebar';
 import './style/main.css';
 
+import '@/utils/frame';
+
 const _app = document.getElementById('app')!;
+const _canvas = createEl({ tagName: 'canvas', className: 'canvas' });
+const _canvasContainer = createEl({ className: 'canvas-container', children: [_canvas] });
+_app.appendChild(_canvasContainer);
 const pagesArr = Object.keys(pages);
 _app.appendChild(sideBar(pagesArr));
-const _canvas = createEl({ tagName: 'canvas', className: 'canvas' });
-_app.appendChild(_canvas);
 
 let pause: void | (() => void);
 const loadPage = (url?: string) => {

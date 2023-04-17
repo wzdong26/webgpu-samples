@@ -9,6 +9,6 @@ export default function createEl<K extends keyof HTMLElementTagNameMap = 'div'>(
     const div = document.createElement<K>(tagName);
     className && (div.className = className);
     txt && (div.innerText = txt);
-    children && div.append(...children);
+    children?.length && div.append(...children);
     return div;
 }
