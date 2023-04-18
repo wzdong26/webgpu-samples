@@ -1,22 +1,81 @@
 /**
- * @title rotatingCube
- * @description rotatingCube
+ * @title canvasTexturedCube
+ * @description canvasTexturedCube
  * @author wzdong
  */
 
 import basicVert from '@/shaders/basic.vert.wgsl?raw';
-import positionFrag from '@/shaders/position.frag.wgsl?raw';
+import textureFrag from '@/shaders/texture.frag.wgsl?raw';
 
 import * as cube from '@/geometry/cube';
 import { getMvpMatrix } from '@/utils/matrix';
 import { animationFrame } from '@/utils/frame';
 import { onResize } from '@/utils/resizeObserver';
 
-export function render(canvas: HTMLCanvasElement) {
-    return init(canvas);
+export function render(canvas: HTMLCanvasElement, panel: HTMLDivElement) {
+    const cleanCanvas2d = canvas2d(panel);
+
+    const off = init(canvas, cleanCanvas2d.target);
+    return async () => {
+        cleanCanvas2d();
+        (await off)();
+    };
 }
 
-function mvpRotate(device: GPUDevice, group: ReturnType<typeof createBindGroup>, aspect: number) {
+function canvas2d(panel: HTMLDivElement) {
+    const _div = document.createElement('div');
+    _div.innerText = 'Try drawing on the canvas below:';
+    const _canvas = document.createElement('canvas');
+    panel.append(_div, _canvas);
+
+    const ctx = _canvas.getContext('2d');
+    if (!ctx) throw new Error('No support 2d');
+    ctx.fillStyle = '#fff';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.fillRect(0, 0, _canvas.width, _canvas.height);
+
+    let lastX = 0,
+        lastY = 0;
+    let hue = 0;
+
+    const onpointerdown = (e: PointerEvent) => {
+        lastX = e.offsetX;
+        lastY = e.offsetY;
+        document.addEventListener('pointermove', onpointermove);
+        document.addEventListener('pointerup', onpointerup, { once: true });
+        _canvas.addEventListener('pointerout', onpointerup, { once: true });
+    };
+    const onpointermove = (e: PointerEvent) => {
+        const x = e.offsetX;
+        const y = e.offsetY;
+        hue = hue > 360 ? 0 : hue + 1;
+        ctx.strokeStyle = `hsl(${hue}, 90%, 50%)`;
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+
+        lastX = x;
+        lastY = y;
+    };
+    const onpointerup = () => document.removeEventListener('pointermove', onpointermove);
+    _canvas.addEventListener('pointerdown', onpointerdown);
+
+    const cleanup = () => {
+        onpointerup();
+        document.removeEventListener('pointerup', onpointerup);
+        _canvas.removeEventListener('pointerout', onpointerup);
+        _canvas.removeEventListener('pointerdown', onpointerdown);
+        panel.removeChild(_div);
+        panel.removeChild(_canvas);
+    };
+    cleanup.target = _canvas;
+    return cleanup;
+}
+
+function mvpRotate(device: GPUDevice, buffer: GPUBuffer, aspect: number) {
     const mvp = {
         position: { x: 0, y: 0, z: -8 },
         rotation: { x: 0, y: 0, z: 0 },
@@ -27,12 +86,12 @@ function mvpRotate(device: GPUDevice, group: ReturnType<typeof createBindGroup>,
         time = time / 1000;
         mvp.rotation.x = Math.sin(time);
         mvp.rotation.y = Math.cos(time);
-        const mvpMatrix1 = getMvpMatrix(aspect, mvp.position, mvp.rotation, mvp.scale);
-        device.queue.writeBuffer(group.buffer, 0, mvpMatrix1);
+        const mvpMatrix = getMvpMatrix(aspect, mvp.position, mvp.rotation, mvp.scale);
+        device.queue.writeBuffer(buffer, 0, mvpMatrix);
     };
 }
 
-async function init(canvas: HTMLCanvasElement) {
+async function init(canvas: HTMLCanvasElement, canvas2d: HTMLCanvasElement) {
     // `navigator.gpu`, `requestAdapter`, `getPreferredCanvasFormat` have compatibility problems
     const { gpu } = navigator;
     const adapter = await gpu?.requestAdapter?.({});
@@ -79,7 +138,7 @@ async function init(canvas: HTMLCanvasElement) {
         },
         fragment: {
             module: device.createShaderModule({
-                code: positionFrag,
+                code: textureFrag,
             }),
             entryPoint: 'main',
             targets: [{ format }],
@@ -107,8 +166,47 @@ async function init(canvas: HTMLCanvasElement) {
     });
     device.queue.writeBuffer(vertexBuffer, 0, cube.vertex, 0, cube.vertex.length);
 
-    // create a 4x4 mvp matrix
-    const group = createBindGroup(device, pipeline);
+    // create a 4x4 mvp matrix buffer
+    const mvpBuffer = device.createBuffer({
+        size: 4 * 4 * 4, // 4 x 4 x float32
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const canvas2dSize = [canvas2d.width, canvas2d.height];
+    // create empty texture
+    const texture = device.createTexture({
+        size: [...canvas2dSize, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    // Create a sampler with linear filtering for smooth interpolation.
+    const sampler = device.createSampler({
+        // addressModeU: 'repeat',
+        // addressModeV: 'repeat',
+        magFilter: 'linear',
+        minFilter: 'linear',
+    });
+
+    const group = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            {
+                binding: 0,
+                resource: {
+                    buffer: mvpBuffer,
+                },
+            },
+            {
+                binding: 1,
+                resource: sampler,
+            },
+            {
+                binding: 2,
+                resource: texture.createView(),
+            },
+        ],
+    });
 
     // create depthTexture for renderPass
     let depthView: GPUTextureView;
@@ -132,13 +230,15 @@ async function init(canvas: HTMLCanvasElement) {
             })
             .createView();
 
-        rotate = mvpRotate(device, group, size.width / size.height);
+        rotate = mvpRotate(device, mvpBuffer, size.width / size.height);
     };
     onCanvasResize();
     const offResize = onResize(canvas, onCanvasResize);
 
     const pause = animationFrame((time) => {
         rotate(time);
+        // update texture from canvas every frame
+        device.queue.copyExternalImageToTexture({ source: canvas2d }, { texture }, canvas2dSize);
 
         const commandEncoder = device.createCommandEncoder();
 
@@ -166,7 +266,7 @@ async function init(canvas: HTMLCanvasElement) {
         passEncoder.setVertexBuffer(0, vertexBuffer);
         {
             // draw cube
-            passEncoder.setBindGroup(0, group.group);
+            passEncoder.setBindGroup(0, group);
             passEncoder.draw(cube.vertexCount);
         }
         passEncoder.end();
@@ -177,22 +277,4 @@ async function init(canvas: HTMLCanvasElement) {
         pause();
         offResize();
     };
-}
-
-function createBindGroup(device: GPUDevice, pipeline: GPURenderPipeline) {
-    const buffer = device.createBuffer({
-        size: 4 * 4 * 4, // 4 x 4 x float32
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    // create a uniform group for buffer
-    const group = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            {
-                binding: 0,
-                resource: { buffer },
-            },
-        ],
-    });
-    return { buffer, group };
 }

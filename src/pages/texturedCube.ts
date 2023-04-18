@@ -1,22 +1,81 @@
 /**
- * @title rotatingCube
- * @description rotatingCube
+ * @title texturedCube
+ * @description texturedCube
  * @author wzdong
  */
 
 import basicVert from '@/shaders/basic.vert.wgsl?raw';
-import positionFrag from '@/shaders/position.frag.wgsl?raw';
+import textureFrag from '@/shaders/texture.frag.wgsl?raw';
+import textureUrl from '/texture.webp?url';
+import spritesUrl from '/sprites.webp?url';
 
 import * as cube from '@/geometry/cube';
 import { getMvpMatrix } from '@/utils/matrix';
 import { animationFrame } from '@/utils/frame';
 import { onResize } from '@/utils/resizeObserver';
 
-export function render(canvas: HTMLCanvasElement) {
-    return init(canvas);
+export function render(canvas: HTMLCanvasElement, panel: HTMLDivElement) {
+    const { on, off } = selectInput(panel);
+    const cleanup = init(canvas, on);
+    return async () => {
+        (await cleanup)();
+        off();
+    };
 }
 
-function mvpRotate(device: GPUDevice, group: ReturnType<typeof createBindGroup>, aspect: number) {
+const textures: Record<string, string | ImageBitmap> = {
+    texture: textureUrl,
+    sprites: spritesUrl,
+};
+
+async function getImageBitmap(name: keyof typeof textures) {
+    const texture = textures[name];
+    if (typeof texture === 'string') {
+        const img = new Image();
+        img.src = texture;
+        await img.decode();
+        const imageBitmap = await createImageBitmap(img);
+        return (textures[name] = imageBitmap);
+    } else {
+        return texture;
+    }
+}
+
+// select input bar
+function selectInput(panel: HTMLDivElement) {
+    const _select = document.createElement('select');
+    const _selectOptions = Object.keys(textures).map((e) => {
+        const _selectOption = document.createElement('option');
+        _selectOption.value = e;
+        _selectOption.innerText = e;
+        return _selectOption;
+    });
+    _select.append(..._selectOptions);
+
+    panel.append(_select);
+
+    let onInput: (e: { target: EventTarget | null }) => Promise<void>;
+    return {
+        on: async (cb: (name: keyof typeof textures) => void | Promise<void>, immediately?: boolean) => {
+            onInput && _select.removeEventListener('input', onInput);
+            onInput = async ({ target }) => {
+                const { value } = (target || {}) as HTMLSelectElement;
+                if (!(textures as any)[value]) return;
+                await cb(value as keyof typeof textures);
+            };
+            _select.addEventListener('input', onInput);
+            if (immediately) {
+                await onInput({ target: _select });
+            }
+        },
+        off: () => {
+            onInput && _select.removeEventListener('input', onInput);
+            panel.removeChild(_select);
+        },
+    };
+}
+
+function mvpRotate(device: GPUDevice, buffer: GPUBuffer, aspect: number) {
     const mvp = {
         position: { x: 0, y: 0, z: -8 },
         rotation: { x: 0, y: 0, z: 0 },
@@ -27,12 +86,12 @@ function mvpRotate(device: GPUDevice, group: ReturnType<typeof createBindGroup>,
         time = time / 1000;
         mvp.rotation.x = Math.sin(time);
         mvp.rotation.y = Math.cos(time);
-        const mvpMatrix1 = getMvpMatrix(aspect, mvp.position, mvp.rotation, mvp.scale);
-        device.queue.writeBuffer(group.buffer, 0, mvpMatrix1);
+        const mvpMatrix = getMvpMatrix(aspect, mvp.position, mvp.rotation, mvp.scale);
+        device.queue.writeBuffer(buffer, 0, mvpMatrix);
     };
 }
 
-async function init(canvas: HTMLCanvasElement) {
+async function init(canvas: HTMLCanvasElement, onSelect: ReturnType<typeof selectInput>['on']) {
     // `navigator.gpu`, `requestAdapter`, `getPreferredCanvasFormat` have compatibility problems
     const { gpu } = navigator;
     const adapter = await gpu?.requestAdapter?.({});
@@ -79,7 +138,7 @@ async function init(canvas: HTMLCanvasElement) {
         },
         fragment: {
             module: device.createShaderModule({
-                code: positionFrag,
+                code: textureFrag,
             }),
             entryPoint: 'main',
             targets: [{ format }],
@@ -107,8 +166,57 @@ async function init(canvas: HTMLCanvasElement) {
     });
     device.queue.writeBuffer(vertexBuffer, 0, cube.vertex, 0, cube.vertex.length);
 
-    // create a 4x4 mvp matrix
-    const group = createBindGroup(device, pipeline);
+    // create a 4x4 mvp matrix buffer
+    const mvpBuffer = device.createBuffer({
+        size: 4 * 4 * 4, // 4 x 4 x float32
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    let group: GPUBindGroup;
+    // select texture
+    await onSelect(async (name) => {
+        // Fetch the image and upload it into a GPUTexture.
+        const imageBitmap = await getImageBitmap(name);
+        // create empty texture
+        const cubeTexture = device.createTexture({
+            size: [imageBitmap.width, imageBitmap.height, 1],
+            format: 'rgba8unorm',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        // update image to GPUTexture
+        device.queue.copyExternalImageToTexture({ source: imageBitmap }, { texture: cubeTexture }, [
+            imageBitmap.width,
+            imageBitmap.height,
+        ]);
+
+        // Create a sampler with linear filtering for smooth interpolation.
+        const sampler = device.createSampler({
+            // addressModeU: 'repeat',
+            // addressModeV: 'repeat',
+            magFilter: 'linear',
+            minFilter: 'linear',
+        });
+
+        group = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer: mvpBuffer,
+                    },
+                },
+                {
+                    binding: 1,
+                    resource: sampler,
+                },
+                {
+                    binding: 2,
+                    resource: cubeTexture.createView(),
+                },
+            ],
+        });
+    }, true);
 
     // create depthTexture for renderPass
     let depthView: GPUTextureView;
@@ -132,7 +240,7 @@ async function init(canvas: HTMLCanvasElement) {
             })
             .createView();
 
-        rotate = mvpRotate(device, group, size.width / size.height);
+        rotate = mvpRotate(device, mvpBuffer, size.width / size.height);
     };
     onCanvasResize();
     const offResize = onResize(canvas, onCanvasResize);
@@ -166,7 +274,7 @@ async function init(canvas: HTMLCanvasElement) {
         passEncoder.setVertexBuffer(0, vertexBuffer);
         {
             // draw cube
-            passEncoder.setBindGroup(0, group.group);
+            passEncoder.setBindGroup(0, group);
             passEncoder.draw(cube.vertexCount);
         }
         passEncoder.end();
@@ -177,22 +285,4 @@ async function init(canvas: HTMLCanvasElement) {
         pause();
         offResize();
     };
-}
-
-function createBindGroup(device: GPUDevice, pipeline: GPURenderPipeline) {
-    const buffer = device.createBuffer({
-        size: 4 * 4 * 4, // 4 x 4 x float32
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    // create a uniform group for buffer
-    const group = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            {
-                binding: 0,
-                resource: { buffer },
-            },
-        ],
-    });
-    return { buffer, group };
 }

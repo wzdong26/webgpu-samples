@@ -5,22 +5,11 @@
 
 import positionVert from '@/shaders/position.vert.wgsl?raw';
 import colorFrag from '@/shaders/color.frag.wgsl?raw';
-import { triangle } from '@/geometry/triangle';
+import * as triangle from '@/geometry/triangle';
 import { onResize } from '@/utils/resizeObserver';
 
-export async function render(canvas: HTMLCanvasElement) {
-    const { device, context, pipeline } = await init(canvas);
-    const buffer = initBuffer(device, pipeline);
-    // start draw
-    draw(device, context, pipeline, buffer);
-
-    // re-configure context on resize
-    return onResize(canvas, () => {
-        canvas.width = canvas.clientWidth * devicePixelRatio;
-        canvas.height = canvas.clientHeight * devicePixelRatio;
-        // don't need to recall context.configure() after v104
-        draw(device, context, pipeline, buffer);
-    });
+export function render(canvas: HTMLCanvasElement) {
+    return init(canvas);
 }
 
 async function init(canvas: HTMLCanvasElement) {
@@ -34,22 +23,14 @@ async function init(canvas: HTMLCanvasElement) {
     const device = await adapter.requestDevice();
     const context = canvas.getContext('webgpu')!;
     const { devicePixelRatio = 1 } = window;
-    const canvasSize = {
-        width: canvas.clientWidth * devicePixelRatio,
-        height: canvas.clientHeight * devicePixelRatio,
-    };
-    Object.assign(canvas, canvasSize);
+
     context.configure({
         device,
         format,
-        alphaMode: 'opaque',
+        alphaMode: 'premultiplied', // premultiplied / opaque
     });
-    const pipeline = await initPipeline(device, format);
-    return { device, context, format, canvasSize, pipeline };
-}
 
-function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
-    return device.createRenderPipelineAsync({
+    const pipeline = device.createRenderPipeline({
         vertex: {
             module: device.createShaderModule({
                 code: positionVert,
@@ -61,10 +42,16 @@ function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
                         {
                             shaderLocation: 0, // location(0)
                             offset: 0,
-                            format: 'float32x3',
+                            format: `float32x${triangle.positionStride}`,
+                        },
+                        // uv, used for texture, here as a placeholder only.
+                        {
+                            shaderLocation: 1, // location(1)
+                            offset: 4 * triangle.positionStride,
+                            format: `float32x${triangle.uvStride}`,
                         },
                     ],
-                    arrayStride: 4 * 3, // every 3 elements is a vertex
+                    arrayStride: 4 * (triangle.positionStride + triangle.uvStride), // every 3 elements is a vertex
                     stepMode: 'vertex',
                 },
             ],
@@ -81,9 +68,7 @@ function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
         },
         layout: 'auto',
     });
-}
 
-function initBuffer(device: GPUDevice, pipeline: GPURenderPipeline) {
     // create vertex buffer
     const vertexBuffer = device.createBuffer({
         size: triangle.vertex.byteLength,
@@ -109,35 +94,44 @@ function initBuffer(device: GPUDevice, pipeline: GPURenderPipeline) {
         ],
     });
 
-    return { vertexBuffer, colorBuffer, uniformGroup };
-}
+    // draw
+    const draw = () => {
+        const commandEncoder = device.createCommandEncoder();
+        const passEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [
+                {
+                    view: context.getCurrentTexture().createView(),
+                    clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1.0 },
+                    loadOp: 'clear', // clear/load
+                    storeOp: 'store', // store/discard
+                },
+            ],
+        });
+        passEncoder.setPipeline(pipeline);
+        // set vertex
+        passEncoder.setVertexBuffer(0, vertexBuffer);
+        // set uniformGroup
+        passEncoder.setBindGroup(0, uniformGroup);
+        // 3 vertex form a triangle
+        passEncoder.draw(triangle.vertexCount);
 
-function draw(
-    device: GPUDevice,
-    context: GPUCanvasContext,
-    pipeline: GPURenderPipeline,
-    buffer: { vertexBuffer: GPUBuffer; uniformGroup: GPUBindGroup }
-) {
-    const commandEncoder = device.createCommandEncoder();
-    const passEncoder = commandEncoder.beginRenderPass({
-        colorAttachments: [
-            {
-                view: context.getCurrentTexture().createView(),
-                clearValue: { r: 0, g: 0.5, b: 1.0, a: 1.0 },
-                loadOp: 'clear', // clear/load
-                storeOp: 'store', // store/discard
-            },
-        ],
-    });
-    passEncoder.setPipeline(pipeline);
-    // set vertex
-    passEncoder.setVertexBuffer(0, buffer.vertexBuffer);
-    // set uniformGroup
-    passEncoder.setBindGroup(0, buffer.uniformGroup);
-    // 3 vertex form a triangle
-    passEncoder.draw(triangle.vertexCount);
+        passEncoder.end();
+        // webgpu run in a separate process, all the commands will be executed after submit
+        device.queue.submit([commandEncoder.finish()]);
+    };
 
-    passEncoder.end();
-    // webgpu run in a separate process, all the commands will be executed after submit
-    device.queue.submit([commandEncoder.finish()]);
+    const onCanvasResize = (entry?: ResizeObserverEntry) => {
+        const { width, height, clientHeight, clientWidth } = canvas;
+        if (entry && width === clientWidth * devicePixelRatio && height === clientHeight * devicePixelRatio) return;
+        const size = {
+            width: canvas.clientWidth * devicePixelRatio,
+            height: canvas.clientHeight * devicePixelRatio,
+        };
+        Object.assign(canvas, size);
+
+        draw();
+    };
+
+    onCanvasResize();
+    return onResize(canvas, onCanvasResize);
 }

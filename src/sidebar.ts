@@ -1,10 +1,11 @@
 import createEl from './common/createEl';
 import { router } from './common/router';
 import './style/sidebar.css';
+import logoUrl from '/favicon.jpg?url'
 
 export default function sideBar(items: string[]) {
     const _img = createEl({ tagName: 'img', className: 'logo' });
-    _img.src = 'favicon.jpg';
+    _img.src = logoUrl;
     _img.alt = 'logo';
 
     const _githubLink = createEl({ tagName: 'a', txt: '🔗 GitHub', className: 'github-link' });

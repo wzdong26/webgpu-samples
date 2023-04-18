@@ -18,6 +18,7 @@
     text-align: center;
     display: block;
     cursor: pointer;
+    color: #0e6e91;
 }
 .github-link:hover {
     color: #0cd0f3;

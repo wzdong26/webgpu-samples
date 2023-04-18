@@ -1,10 +1,10 @@
 /**
- * @title rotatingCube
- * @description rotatingCube
+ * @title instancedCubes
+ * @description instancedCubes
  * @author wzdong
  */
 
-import basicVert from '@/shaders/basic.vert.wgsl?raw';
+import instancedVert from '@/shaders/instanced.vert.wgsl?raw';
 import positionFrag from '@/shaders/position.frag.wgsl?raw';
 
 import * as cube from '@/geometry/cube';
@@ -16,19 +16,38 @@ export function render(canvas: HTMLCanvasElement) {
     return init(canvas);
 }
 
-function mvpRotate(device: GPUDevice, group: ReturnType<typeof createBindGroup>, aspect: number) {
-    const mvp = {
-        position: { x: 0, y: 0, z: -8 },
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 },
-    };
+// total objects
+const NUM = 1000;
+
+function mvpRotate(device: GPUDevice, buffer: GPUBuffer, aspect: number) {
+    const scene: any[] = [];
+    const mvpBuffer = new Float32Array(NUM * 4 * 4);
+    for (let i = 0; i < NUM; i++) {
+        // create simple object
+        const position = { x: Math.random() * 40 - 20, y: Math.random() * 40 - 20, z: -30 - Math.random() * 50 };
+        const rotation = { x: 0, y: 0, z: 0 };
+        const scale = { x: 1, y: 1, z: 1 };
+        scene.push({ position, rotation, scale });
+    }
 
     return function rotate(time: number) {
         time = time / 1000;
-        mvp.rotation.x = Math.sin(time);
-        mvp.rotation.y = Math.cos(time);
-        const mvpMatrix1 = getMvpMatrix(aspect, mvp.position, mvp.rotation, mvp.scale);
-        device.queue.writeBuffer(group.buffer, 0, mvpMatrix1);
+        // update rotation for each object
+        for (let i = 0; i < scene.length - 1; i++) {
+            const obj = scene[i];
+            obj.rotation.x = Math.sin(time + i);
+            obj.rotation.y = Math.cos(time + i);
+            const mvpMatrix = getMvpMatrix(aspect, obj.position, obj.rotation, obj.scale);
+            // update buffer based on offset
+            // device.queue.writeBuffer(
+            //     pipelineObj.mvpBuffer,
+            //     i * 4 * 4 * 4, // offset for each object, no need to 256-byte aligned
+            //     mvpMatrix
+            // )
+            // or save to mvpBuffer first
+            mvpBuffer.set(mvpMatrix, i * 4 * 4);
+        }
+        device.queue.writeBuffer(buffer, 0, mvpBuffer);
     };
 }
 
@@ -47,14 +66,14 @@ async function init(canvas: HTMLCanvasElement) {
     context.configure({
         device,
         format,
-        alphaMode: 'premultiplied',
+        alphaMode: 'opaque',
     });
 
     // pipeline
     const pipeline = device.createRenderPipeline({
         vertex: {
             module: device.createShaderModule({
-                code: basicVert,
+                code: instancedVert,
             }),
             entryPoint: 'main',
             buffers: [
@@ -107,8 +126,23 @@ async function init(canvas: HTMLCanvasElement) {
     });
     device.queue.writeBuffer(vertexBuffer, 0, cube.vertex, 0, cube.vertex.length);
 
-    // create a 4x4 mvp matrix
-    const group = createBindGroup(device, pipeline);
+    // create a 4x4xNUM STORAGE buffer to store matrix
+    const mvpBuffer = device.createBuffer({
+        size: 4 * 4 * 4 * NUM, // 4 x 4 x float32 x NUM
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    // create a uniform group for Matrix
+    const group = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            {
+                binding: 0,
+                resource: {
+                    buffer: mvpBuffer,
+                },
+            },
+        ],
+    });
 
     // create depthTexture for renderPass
     let depthView: GPUTextureView;
@@ -132,7 +166,7 @@ async function init(canvas: HTMLCanvasElement) {
             })
             .createView();
 
-        rotate = mvpRotate(device, group, size.width / size.height);
+        rotate = mvpRotate(device, mvpBuffer, size.width / size.height);
     };
     onCanvasResize();
     const offResize = onResize(canvas, onCanvasResize);
@@ -165,9 +199,9 @@ async function init(canvas: HTMLCanvasElement) {
         passEncoder.setPipeline(pipeline);
         passEncoder.setVertexBuffer(0, vertexBuffer);
         {
-            // draw cube
-            passEncoder.setBindGroup(0, group.group);
-            passEncoder.draw(cube.vertexCount);
+            // draw NUM cubes in one draw()
+            passEncoder.setBindGroup(0, group);
+            passEncoder.draw(cube.vertexCount, NUM);
         }
         passEncoder.end();
         device.queue.submit([commandEncoder.finish()]);

@@ -28,3 +28,8 @@ body {
     aspect-ratio: 1 / 1;
     max-height: 100vh;
 }
+.input-panel{
+    position: absolute;
+    top: 10px;
+    right: 10px;
+}
