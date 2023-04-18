@@ -18,7 +18,12 @@ export default function sideBar(items: string[]) {
         return createEl({ className: 'nav-item', txt: item });
     });
     const _navbar = createEl({ className: 'navbar', children: _navItems });
-    let activeItem: HTMLDivElement;
+    
+    let activeItem: HTMLDivElement | undefined;
+    if (location.hash) {
+        activeItem = _navItems.find(e => e.innerText === location.hash.replace('#/', ''));
+        activeItem?.classList.add('nav-item-active');
+    }
     _navbar.addEventListener('click', ({ target }) => {
         const el = target as HTMLDivElement;
         if (el.className === 'nav-item' && el.innerText) {

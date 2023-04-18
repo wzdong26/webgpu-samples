@@ -19,10 +19,13 @@ requestAdapter().then(undefined, () => {
 });
 
 let pause: void | (() => void);
+// hash router
+router.hash = true;
 const loadPage = (url?: string) => {
     pause?.();
-    if (!url) return router.push(pagesArr[0]);
-    let key = (url ?? location.pathname).replace('/', '');
+    let key = url ?? location.hash.replace('#/', '');
+    console.log(key)
+    if (!key) return router.push(pagesArr[0]);
     pages[key as keyof typeof pages]?.().then(async ({ render }) => {
         pause = await render?.(_canvas);
     });

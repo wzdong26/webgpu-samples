@@ -1,4 +1,5 @@
 export const router = {
+    hash: false,
     beforeHooks: new Set<(s: string) => void>(),
     afterHooks: new Set<(s: string) => void>(),
     push(url: string) {},
@@ -19,7 +20,7 @@ export const router = {
         for (const cb of this.beforeHooks) {
             cb(url);
         }
-        history[(e + 'State') as 'pushState']({}, '', url);
+        history[(e + 'State') as 'pushState']({}, '', (this.hash ? '#/' : '') + url);
         for (const cb of this.afterHooks) {
             cb(url);
         }
