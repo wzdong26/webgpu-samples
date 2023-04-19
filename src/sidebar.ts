@@ -1,7 +1,7 @@
 import createEl from './common/createEl';
 import { router } from './common/router';
 import './style/sidebar.css';
-import logoUrl from '/favicon.jpg?url'
+import logoUrl from '/webgpu.svg?url'
 
 export default function sideBar(items: string[]) {
     const _img = createEl({ tagName: 'img', className: 'logo' });

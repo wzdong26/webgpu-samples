@@ -12,14 +12,54 @@ import { getMvpMatrix } from '@/utils/matrix';
 import { animationFrame } from '@/utils/frame';
 import { onResize } from '@/utils/resizeObserver';
 
-export function render(canvas: HTMLCanvasElement) {
-    return init(canvas);
+export function render(canvas: HTMLCanvasElement, panel: HTMLDivElement) {
+    const { on, off } = selectInput(panel);
+    const cleanup = init(canvas, on);
+    return async () => {
+        (await cleanup)();
+        off();
+    };
+}
+
+const selectOptions = ['renderInstance', 'renderBundle'];
+
+// select input bar
+function selectInput(panel: HTMLDivElement) {
+    const _select = document.createElement('select');
+    const _selectOptions = selectOptions.map((e) => {
+        const _selectOption = document.createElement('option');
+        _selectOption.value = e;
+        _selectOption.innerText = e;
+        return _selectOption;
+    });
+    _select.append(..._selectOptions);
+
+    panel.append(_select);
+
+    let onInput: (e: { target: EventTarget | null }) => Promise<void>;
+    return {
+        on: async (cb: (name: string) => void | Promise<void>, immediately?: boolean) => {
+            onInput && _select.removeEventListener('input', onInput);
+            onInput = async ({ target }) => {
+                const { value } = (target || {}) as HTMLSelectElement;
+                await cb(value);
+            };
+            _select.addEventListener('input', onInput);
+            if (immediately) {
+                await onInput({ target: _select });
+            }
+        },
+        off: () => {
+            onInput && _select.removeEventListener('input', onInput);
+            panel.removeChild(_select);
+        },
+    };
 }
 
 // total objects
 const NUM = 1000;
 
-function mvpRotate(device: GPUDevice, buffer: GPUBuffer, aspect: number) {
+function mvpRotate(aspect: number) {
     const scene: any[] = [];
     const mvpBuffer = new Float32Array(NUM * 4 * 4);
     for (let i = 0; i < NUM; i++) {
@@ -47,11 +87,11 @@ function mvpRotate(device: GPUDevice, buffer: GPUBuffer, aspect: number) {
             // or save to mvpBuffer first
             mvpBuffer.set(mvpMatrix, i * 4 * 4);
         }
-        device.queue.writeBuffer(buffer, 0, mvpBuffer);
+        return mvpBuffer;
     };
 }
 
-async function init(canvas: HTMLCanvasElement) {
+async function init(canvas: HTMLCanvasElement, onSelect: ReturnType<typeof selectInput>['on']) {
     // `navigator.gpu`, `requestAdapter`, `getPreferredCanvasFormat` have compatibility problems
     const { gpu } = navigator;
     const adapter = await gpu?.requestAdapter?.({});
@@ -126,6 +166,140 @@ async function init(canvas: HTMLCanvasElement) {
     });
     device.queue.writeBuffer(vertexBuffer, 0, cube.vertex, 0, cube.vertex.length);
 
+    const { write, setGroup } = createMvpGroup(device, pipeline);
+
+    // create depthTexture for renderPass
+    let depthTexture: GPUTexture;
+
+    let rotate: (time: number) => Float32Array;
+
+    const onCanvasResize = (entry?: ResizeObserverEntry) => {
+        const { width, height, clientHeight, clientWidth } = canvas;
+        if (entry && width === clientWidth * devicePixelRatio && height === clientHeight * devicePixelRatio) return;
+        const size = {
+            width: canvas.clientWidth * devicePixelRatio,
+            height: canvas.clientHeight * devicePixelRatio,
+        };
+        Object.assign(canvas, size);
+
+        // re-create depth texture
+        depthTexture?.destroy();
+        depthTexture = device.createTexture({
+            size,
+            format: 'depth24plus',
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+
+        rotate = mvpRotate(size.width / size.height);
+    };
+    onCanvasResize();
+    const offResize = onResize(canvas, onCanvasResize);
+
+    // case1: renderInstance
+    function renderInstance() {
+        const renderPassDescriptor: GPURenderPassDescriptor = {
+            colorAttachments: [
+                {
+                    view: undefined as any, // Assigned later
+                    clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1.0 },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                },
+            ],
+            depthStencilAttachment: {
+                view: depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
+        };
+        return () => {
+            const commandEncoder = device.createCommandEncoder();
+            (renderPassDescriptor.colorAttachments as any)[0].view = context.getCurrentTexture().createView();
+
+            const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+            passEncoder.setPipeline(pipeline);
+            passEncoder.setVertexBuffer(0, vertexBuffer);
+            {
+                // draw NUM cubes in one draw()
+                setGroup(passEncoder);
+                passEncoder.draw(cube.vertexCount, NUM);
+            }
+            passEncoder.end();
+            device.queue.submit([commandEncoder.finish()]);
+        };
+    }
+
+    // case2: renderBundle
+    function renderBundle() {
+        const passEncoder = device.createRenderBundleEncoder({
+            colorFormats: [format],
+            depthStencilFormat: 'depth24plus',
+        });
+        passEncoder.setPipeline(pipeline);
+        // assume we have different objects
+        // need to change vertex and group on every draw
+        // that requires a lot of cpu time for a large NUM
+        console.time('recordBundles');
+        for (let i = 0; i < NUM; i++) {
+            passEncoder.setVertexBuffer(0, vertexBuffer);
+            setGroup(passEncoder);
+            passEncoder.draw(cube.vertexCount, 1, 0, i);
+        }
+        console.timeEnd('recordBundles');
+        const renderBundle = [passEncoder.finish()];
+
+        const renderPassDescriptor: GPURenderPassDescriptor = {
+            colorAttachments: [
+                {
+                    view: undefined as any, // Assigned later
+                    clearValue: { r: 0, g: 0, b: 0, a: 1.0 },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                },
+            ],
+            depthStencilAttachment: {
+                view: depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
+        };
+        return () => {
+            const commandEncoder = device.createCommandEncoder();
+            (renderPassDescriptor.colorAttachments as any)[0].view = context.getCurrentTexture().createView();
+            const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+            // execute bundles, could save over 10X CPU time
+            // but won't help with GPU time
+            passEncoder.executeBundles(renderBundle);
+            passEncoder.end();
+            // webgpu run in a separate process, all the commands will be executed after submit
+            device.queue.submit([commandEncoder.finish()]);
+        };
+    }
+
+    let render: () => void;
+    await onSelect((name) => {
+        if (name === 'renderBundle') {
+            render = renderBundle();
+        } else {
+            render = renderInstance();
+        }
+    }, true);
+
+    const pause = animationFrame((time) => {
+        const mvpBuffer = rotate(time);
+        write(mvpBuffer);
+        render();
+    });
+
+    return () => {
+        pause();
+        offResize();
+    };
+}
+
+function createMvpGroup(device: GPUDevice, pipeline: GPURenderPipeline) {
     // create a 4x4xNUM STORAGE buffer to store matrix
     const mvpBuffer = device.createBuffer({
         size: 4 * 4 * 4 * NUM, // 4 x 4 x float32 x NUM
@@ -143,90 +317,12 @@ async function init(canvas: HTMLCanvasElement) {
             },
         ],
     });
-
-    // create depthTexture for renderPass
-    let depthView: GPUTextureView;
-
-    let rotate: (time: number) => void;
-
-    const onCanvasResize = (entry?: ResizeObserverEntry) => {
-        const { width, height, clientHeight, clientWidth } = canvas;
-        if (entry && width === clientWidth * devicePixelRatio && height === clientHeight * devicePixelRatio) return;
-        const size = {
-            width: canvas.clientWidth * devicePixelRatio,
-            height: canvas.clientHeight * devicePixelRatio,
-        };
-        Object.assign(canvas, size);
-
-        depthView = device
-            .createTexture({
-                size,
-                format: 'depth24plus',
-                usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            })
-            .createView();
-
-        rotate = mvpRotate(device, mvpBuffer, size.width / size.height);
-    };
-    onCanvasResize();
-    const offResize = onResize(canvas, onCanvasResize);
-
-    const pause = animationFrame((time) => {
-        rotate(time);
-
-        const commandEncoder = device.createCommandEncoder();
-
-        // create colorTexture for renderPass, every frame create new colorTexture.
-        const colorView = context.getCurrentTexture().createView();
-
-        const passEncoder = commandEncoder.beginRenderPass({
-            // required attribute `colorAttachments`, required `colorView`
-            colorAttachments: [
-                {
-                    view: colorView,
-                    clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1.0 },
-                    loadOp: 'clear', // clear/load
-                    storeOp: 'store', // store/discard
-                },
-            ],
-            depthStencilAttachment: {
-                view: depthView,
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            },
-        });
-        passEncoder.setPipeline(pipeline);
-        passEncoder.setVertexBuffer(0, vertexBuffer);
-        {
-            // draw NUM cubes in one draw()
+    return {
+        write(mvpMatrix: Float32Array) {
+            device.queue.writeBuffer(mvpBuffer, 0, mvpMatrix);
+        },
+        setGroup(passEncoder: GPURenderPassEncoder | GPURenderBundleEncoder) {
             passEncoder.setBindGroup(0, group);
-            passEncoder.draw(cube.vertexCount, NUM);
-        }
-        passEncoder.end();
-        device.queue.submit([commandEncoder.finish()]);
-    });
-
-    return () => {
-        pause();
-        offResize();
+        },
     };
-}
-
-function createBindGroup(device: GPUDevice, pipeline: GPURenderPipeline) {
-    const buffer = device.createBuffer({
-        size: 4 * 4 * 4, // 4 x 4 x float32
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    // create a uniform group for buffer
-    const group = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            {
-                binding: 0,
-                resource: { buffer },
-            },
-        ],
-    });
-    return { buffer, group };
 }
