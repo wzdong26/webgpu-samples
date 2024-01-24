@@ -8,4 +8,4 @@ export const pages = {
     twoCubes: () => import('./twoCubes'),
     instancedCubes: () => import('./instancedCubes'),
     // canvasTexturedCube: () => import('./canvasTexturedCube'),
-}
+};
