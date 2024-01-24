@@ -19,6 +19,7 @@ config.resolve.alias = [
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
+    config.root = process.cwd();
     const { VITE_BASE_URL_PATH } = loadEnv(
         mode,
         process.cwd()

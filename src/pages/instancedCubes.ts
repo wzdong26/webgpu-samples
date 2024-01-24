@@ -193,7 +193,7 @@ async function init(canvas: HTMLCanvasElement, onSelect: ReturnType<typeof selec
     rotate = mvpRotate(size.width / size.height);
   };
   onCanvasResize();
-  const offResize = onResize(canvas, onCanvasResize);
+  // const offResize = onResize(canvas, onCanvasResize);
 
   // case1: renderInstance
   function renderInstance() {
@@ -295,7 +295,7 @@ async function init(canvas: HTMLCanvasElement, onSelect: ReturnType<typeof selec
 
   return () => {
     pause();
-    offResize();
+    // offResize();
   };
 }
 
