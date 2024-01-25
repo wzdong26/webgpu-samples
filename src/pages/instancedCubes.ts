@@ -57,7 +57,7 @@ function selectInput(panel: HTMLDivElement) {
 }
 
 // total objects
-const NUM = 1000;
+const NUM = 5000;
 
 function mvpRotate(aspect: number) {
   const scene: any[] = [];
@@ -94,10 +94,8 @@ function mvpRotate(aspect: number) {
 async function init(canvas: HTMLCanvasElement, onSelect: ReturnType<typeof selectInput>['on']) {
   // `navigator.gpu`, `requestAdapter`, `getPreferredCanvasFormat` have compatibility problems
   const { gpu } = navigator;
-  const adapter = await gpu.requestAdapter({});
-  if (!adapter) throw Error('WebGPU not support! Adapter not found!');
+  const adapter = (await gpu.requestAdapter({}))!;
   const format = gpu.getPreferredCanvasFormat();
-  if (!format) throw Error('WebGPU not support! Adapter not found!');
 
   const device = await adapter.requestDevice();
   const context = canvas.getContext('webgpu')!;
